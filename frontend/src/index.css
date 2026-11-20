@@ -1,0 +1,29 @@
+@import "tailwindcss";
+
+/* Project colors and fonts, usable as bg-navy, text-brass, font-head, etc. */
+@theme {
+  --color-ink: #17202a;
+  --color-paper: #f4f6f5;
+  --color-navy: #1b3a5c;
+  --color-navy-dark: #142c47;
+  --color-brass: #b8892b;
+  --color-ok: #2e7d4f;
+  --color-bad: #b23a3a;
+  --color-line: #d9dfdc;
+  --color-muted: #5b6770;
+  --font-head: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --font-body: "Public Sans", "Segoe UI", system-ui, sans-serif;
+}
+
+@layer base {
+  body {
+    @apply bg-paper font-body text-ink;
+  }
+  h1, h2 {
+    @apply font-head leading-tight;
+  }
+  :focus-visible {
+    outline: 3px solid var(--color-brass);
+    outline-offset: 2px;
+  }
+}
