@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import QRCode from "qrcode";
+import Modal from "../components/Modal.jsx";
 import * as api from "../api.js";
 
 const inputClass =
@@ -13,6 +14,15 @@ const th = "bg-paper px-4 py-3 text-sm font-semibold text-muted";
 const td = "border-b border-line px-4 py-3.5";
 
 const YEARS = ["1st Year", "2nd Year", "3rd Year", "4th Year"];
+// Maps values like "2nd year", " 2nd Year " or "2" to one of YEARS, or null if it is something else
+function normalizeYear(value) {
+  const text = String(value ?? "").trim().toLowerCase();
+  const exact = YEARS.find((y) => y.toLowerCase() === text);
+  if (exact) return exact;
+  const digit = text.match(/^([1-4])/);
+  return digit ? YEARS[Number(digit[1]) - 1] : null;
+}
+
 const EMPTY = { studentID: "", name: "", course: "", section: "", year: YEARS[0] };
 
 const initials = (name) =>
@@ -25,14 +35,6 @@ function SearchIcon() {
     <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
       <circle cx="11" cy="11" r="7" />
       <path d="m20 20-3.5-3.5" />
-    </svg>
-  );
-}
-
-function CloseIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-      <path d="M6 6l12 12M18 6 6 18" />
     </svg>
   );
 }
@@ -101,53 +103,6 @@ function QrView({ student, onClose }) {
         )}
       </div>
     </>
-  );
-}
-
-// Uses the browser's native <dialog>, which always opens centered on top of the page,
-// no matter how long the table is or where the user has scrolled.
-function Modal({ title, subtitle, onClose, size = "max-w-lg", children }) {
-  const ref = useRef(null);
-
-  useEffect(() => {
-    const dialog = ref.current;
-    dialog.showModal();
-    document.body.style.overflow = "hidden"; // keep the page behind from scrolling
-    return () => {
-      document.body.style.overflow = "";
-      dialog.close();
-    };
-  }, []);
-
-  return (
-    <dialog
-      ref={ref}
-      aria-label={title}
-      className={`m-auto max-h-[90vh] w-full ${size} overflow-y-auto rounded-xl bg-white p-0 text-ink shadow-2xl backdrop:bg-black/50`}
-      onCancel={(e) => {
-        e.preventDefault(); // let React close it, so state stays in sync
-        onClose();
-      }}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose(); // click on the dim background
-      }}
-    >
-      <div className="flex items-start justify-between gap-4 border-b border-line bg-navy px-6 py-4 text-white">
-        <div>
-          <h2 className="text-xl font-bold">{title}</h2>
-          {subtitle && <p className="mt-0.5 text-sm text-slate-300">{subtitle}</p>}
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close"
-          className="rounded-md p-1 text-slate-300 hover:bg-white/10 hover:text-white"
-        >
-          <CloseIcon />
-        </button>
-      </div>
-      {children}
-    </dialog>
   );
 }
 
@@ -339,8 +294,8 @@ export default function StudentManagement() {
     return [...byCourse.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([course, list]) => {
-        const years = YEARS.map((year) => ({ year, students: list.filter((s) => s.year === year).sort(order) }));
-        const other = list.filter((s) => !YEARS.includes(s.year)).sort(order);
+        const years = YEARS.map((year) => ({ year, students: list.filter((s) => normalizeYear(s.year) === year).sort(order) }));
+        const other = list.filter((s) => normalizeYear(s.year) === null).sort(order);
         if (other.length) years.push({ year: "Other", students: other });
         return { course, total: list.length, years: years.filter((y) => y.students.length > 0) };
       });
@@ -435,7 +390,15 @@ export default function StudentManagement() {
 
               {open && (
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[46rem] border-collapse text-left">
+                  <table className="w-full min-w-[60rem] table-fixed border-collapse text-left">
+                    <colgroup>
+                      <col className="w-40" />
+                      <col />
+                      <col className="w-24" />
+                      <col className="w-36" />
+                      <col className="w-32" />
+                      <col className="w-56" />
+                    </colgroup>
                     <thead>
                       <tr>
                         {["Student number", "Name", "Section", "COR", "Photo"].map((h) => (
@@ -456,7 +419,7 @@ export default function StudentManagement() {
                           <tr key={s.studentID} className="hover:bg-paper">
                             <td className={`${td} tabular-nums`}>{s.studentID}</td>
                             <td className={td}>
-                              <div className="flex items-center gap-3">
+                              <div className="flex min-w-0 items-center gap-3">
                                 {s.photoUrl ? (
                                   <img src={s.photoUrl} alt="" className="size-9 shrink-0 rounded-full border border-line object-cover" />
                                 ) : (
@@ -464,7 +427,7 @@ export default function StudentManagement() {
                                     {initials(s.name)}
                                   </span>
                                 )}
-                                <span className="font-medium">{s.name}</span>
+                                <span className="min-w-0 truncate font-medium" title={s.name}>{s.name}</span>
                               </div>
                             </td>
                             <td className={td}>{s.section}</td>

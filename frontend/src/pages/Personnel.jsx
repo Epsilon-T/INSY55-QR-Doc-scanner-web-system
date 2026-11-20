@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import Modal from "../components/Modal.jsx";
 import * as api from "../api.js";
+import { useAuth } from "../auth.jsx";
 
 const inputClass = "w-full rounded-md border border-line bg-white px-3 py-2.5";
 const EMPTY = { staffName: "", schoolEmail: "", staffRole: "Security", password: "", confirm: "" };
@@ -23,6 +25,10 @@ function Field({ label, hint, children }) {
 }
 
 export default function Personnel() {
+  const { user } = useAuth();
+  const [toDelete, setToDelete] = useState(null); // the account shown in the delete pop-up
+  const [deleting, setDeleting] = useState(false);
+  const [note, setNote] = useState(null); // message above the list: { kind: "ok" | "bad", text }
   const [staff, setStaff] = useState(null);
   const [loadError, setLoadError] = useState("");
   const [editing, setEditing] = useState(null); // the account being edited, or null when registering
@@ -44,7 +50,27 @@ export default function Personnel() {
 
   const set = (key) => (e) => setFields((f) => ({ ...f, [key]: e.target.value }));
 
+  async function handleDelete(account) {
+    setNote(null);
+    setDeleting(true);
+    try {
+      await api.deleteStaff(account.staffID);
+      if (editing?.staffID === account.staffID) {
+        setEditing(null);
+        setFields(EMPTY);
+      }
+      setNote({ kind: "ok", text: `${account.staffName}'s account was deleted.` });
+      await refresh();
+    } catch (err) {
+      setNote({ kind: "bad", text: err.message });
+    } finally {
+      setDeleting(false);
+      setToDelete(null);
+    }
+  }
+
   function startEdit(account) {
+    setNote(null);
     setEditing(account);
     setFields({
       staffName: account.staffName,
@@ -70,6 +96,7 @@ export default function Personnel() {
     e.preventDefault();
     setError("");
     setSuccess("");
+    setNote(null);
 
     const wantsPassword = !editing || fields.password !== "";
     if (wantsPassword) {
@@ -201,6 +228,16 @@ export default function Personnel() {
             Registered personnel
             {staff && <span className="ml-2 text-base font-normal text-muted">{staff.length}</span>}
           </h2>
+          {note && (
+            <p
+              className={`mb-3 rounded-md border px-3 py-2 text-sm ${
+                note.kind === "ok" ? "border-ok/30 bg-ok/10 text-ok" : "border-bad/30 bg-bad/10 text-bad"
+              }`}
+              role={note.kind === "ok" ? "status" : "alert"}
+            >
+              {note.text}
+            </p>
+          )}
           {loadError && <p className="text-bad" role="alert">{loadError}</p>}
           {!staff && !loadError && <p className="text-muted">Loading personnel...</p>}
           {staff && (
@@ -228,7 +265,7 @@ export default function Personnel() {
                       <td className={td}>{s.schoolEmail}</td>
                       <td className={td}>
                         <span
-                          className={`rounded-full px-2.5 py-0.5 text-sm font-medium ${
+                          className={`inline-block whitespace-nowrap rounded-full px-2.5 py-0.5 text-sm font-medium ${
                             s.staffRole === "Admin" ? "bg-brass/15 text-brass" : "bg-navy/10 text-navy"
                           }`}
                         >
@@ -236,12 +273,23 @@ export default function Personnel() {
                         </span>
                       </td>
                       <td className={td}>
-                        <div className="flex justify-end">
+                        <div className="flex justify-end gap-2">
                           <button
                             onClick={() => startEdit(s)}
                             className="rounded-md border border-line bg-white px-3 py-1.5 text-sm font-semibold text-navy hover:bg-paper"
                           >
                             Edit
+                          </button>
+                          <button
+                            onClick={() => {
+                              setNote(null);
+                              setToDelete(s);
+                            }}
+                            disabled={s.staffID === user.staffID}
+                            title={s.staffID === user.staffID ? "You can't delete your own account" : undefined}
+                            className="rounded-md border border-bad/30 bg-white px-3 py-1.5 text-sm font-semibold text-bad hover:bg-bad/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white"
+                          >
+                            Delete
                           </button>
                         </div>
                       </td>
@@ -253,6 +301,30 @@ export default function Personnel() {
           )}
         </section>
       </div>
+
+      {toDelete && (
+        <Modal title="Delete account" size="max-w-md" onClose={() => setToDelete(null)}>
+          <p className="p-6">
+            Delete <strong>{toDelete.staffName}</strong> ({toDelete.schoolEmail})? They will no longer be able to
+            log in. This cannot be undone.
+          </p>
+          <div className="flex justify-end gap-3 border-t border-line bg-paper px-6 py-4">
+            <button
+              onClick={() => setToDelete(null)}
+              className="rounded-md border border-line bg-white px-5 py-2.5 font-semibold hover:bg-paper"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => handleDelete(toDelete)}
+              disabled={deleting}
+              className="rounded-md bg-bad px-5 py-2.5 font-semibold text-white hover:opacity-90 disabled:opacity-60"
+            >
+              {deleting ? "Deleting..." : "Delete account"}
+            </button>
+          </div>
+        </Modal>
+      )}
     </>
   );
 }

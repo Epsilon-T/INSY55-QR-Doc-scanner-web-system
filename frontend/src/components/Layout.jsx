@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth.jsx";
+import Logo from "./Logo.jsx";
 
 function Icon({ children, className = "size-5 shrink-0" }) {
   return (
@@ -131,9 +132,10 @@ export default function Layout() {
             {icons.menu}
             {current.label.length > 18 ? current.label.split(" ").slice(0, 2).join(" ") : current.label}
           </button>
-          <span className="min-w-0 flex-1 truncate text-right font-head text-lg font-bold text-brass">
-            School University Academy
-          </span>
+          <Link to="/" aria-label="School University Academy, go to Dashboard" className="flex min-w-0 flex-1 items-center justify-end gap-2.5">
+            <span className="min-w-0 truncate font-head text-lg font-bold text-brass">School University Academy</span>
+            <Logo size="size-9" />
+          </Link>
         </div>
       </header>
 
@@ -148,10 +150,13 @@ export default function Layout() {
         }`}
       >
         <div className="flex items-start justify-between gap-3 border-b border-white/10 px-5 py-5">
-          <div>
-            <span className="font-head text-xl font-bold leading-tight text-brass">School University Academy</span>
-            <p className="mt-1 text-sm text-slate-300">Student ID check</p>
-          </div>
+          <Link to="/" onClick={() => setOpen(false)} aria-label="School University Academy, go to Dashboard" className="flex min-w-0 items-center gap-3">
+            <Logo size="size-12" />
+            <span>
+              <span className="block font-head text-lg font-bold leading-tight text-brass">School University Academy</span>
+              <span className="mt-0.5 block text-sm text-slate-300">Student ID check</span>
+            </span>
+          </Link>
           <button
             ref={closeRef}
             onClick={() => setOpen(false)}
@@ -181,8 +186,13 @@ export default function Layout() {
       {/* Larger screens: sidebar */}
       <aside className="hidden flex-col bg-navy text-white md:sticky md:top-0 md:flex md:h-screen">
         <div className="border-b border-white/10 px-5 py-6">
-          <span className="font-head text-xl font-bold leading-tight text-brass">School University Academy</span>
-          <p className="mt-1 text-sm text-slate-300">Student ID check</p>
+          <Link to="/" aria-label="School University Academy, go to Dashboard" className="flex items-center gap-3">
+            <Logo size="size-12" />
+            <span>
+              <span className="block font-head text-lg font-bold leading-tight text-brass">School University Academy</span>
+              <span className="mt-0.5 block text-sm text-slate-300">Student ID check</span>
+            </span>
+          </Link>
         </div>
 
         <nav className="flex-1 space-y-1 px-3 py-4" aria-label="Main">

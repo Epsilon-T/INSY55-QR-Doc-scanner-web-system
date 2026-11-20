@@ -251,7 +251,8 @@ export async function addStaff(data) {
     if (MOCK_ACCOUNTS.some((a) => a.schoolEmail === data.schoolEmail)) {
       throw new Error("A staff account with this email already exists.");
     }
-    MOCK_ACCOUNTS.push({ staffID: MOCK_ACCOUNTS.length + 1, ...data });
+    const nextID = Math.max(0, ...MOCK_ACCOUNTS.map((a) => a.staffID)) + 1;
+    MOCK_ACCOUNTS.push({ staffID: nextID, ...data });
     return { ok: true };
   }
   return request("/api/staff", { method: "POST", body: JSON.stringify(data) });
@@ -273,4 +274,17 @@ export async function updateStaff(staffID, data) {
     return { ok: true };
   }
   return request(`/api/staff/${staffID}`, { method: "PUT", body: JSON.stringify(data) });
+}
+
+// DELETE /api/staff/{staffID}  (you cannot delete your own account)
+export async function deleteStaff(staffID) {
+  if (MOCK) {
+    const me = JSON.parse(localStorage.getItem("sua_session") || "null")?.user?.staffID;
+    if (staffID === me) throw new Error("You can't delete your own account.");
+    const index = MOCK_ACCOUNTS.findIndex((a) => a.staffID === staffID);
+    if (index === -1) throw new Error("Staff account not found.");
+    MOCK_ACCOUNTS.splice(index, 1);
+    return { ok: true };
+  }
+  return request(`/api/staff/${staffID}`, { method: "DELETE" });
 }
