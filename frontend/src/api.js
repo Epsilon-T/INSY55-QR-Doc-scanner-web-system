@@ -219,6 +219,7 @@ export async function verifyScan(code) {
       mockToday.denied += 1;
       return { status: "denied", reason: "No face photo is on file for this student.", student: { ...student } };
     }
+    mockEntries.push({ studentID: student.studentID, daysAgo: 0 });
     mockToday.entered += 1;
     return { status: "entered", student: { ...student } };
   }
@@ -287,4 +288,73 @@ export async function deleteStaff(staffID) {
     return { ok: true };
   }
   return request(`/api/staff/${staffID}`, { method: "DELETE" });
+}
+
+/* ---------- Dashboard statistics ---------- */
+
+const YEAR_LEVELS = ["1st Year", "2nd Year", "3rd Year", "4th Year"];
+
+function normalizeYearValue(value) {
+  const text = String(value ?? "").trim().toLowerCase();
+  const exact = YEAR_LEVELS.find((y) => y.toLowerCase() === text);
+  if (exact) return exact;
+  const digit = text.match(/^([1-4])/);
+  return digit ? YEAR_LEVELS[Number(digit[1]) - 1] : "Other";
+}
+
+// Mock mode only: pretend most students entered on one of the last few days.
+// Scanning in mock mode adds to this list too.
+const mockEntries = mockStudents
+  .filter((s) => s.imageUrl && s.photoUrl)
+  .map((s, i) => ({ studentID: s.studentID, daysAgo: i % 5 }));
+
+function summarizeEntries(people) {
+  const byCourse = new Map();
+  const byYear = new Map();
+  const matrix = new Map();
+  for (const { course, year } of people) {
+    byCourse.set(course, (byCourse.get(course) ?? 0) + 1);
+    byYear.set(year, (byYear.get(year) ?? 0) + 1);
+    const row = matrix.get(course) ?? {};
+    row[year] = (row[year] ?? 0) + 1;
+    matrix.set(course, row);
+  }
+  const yearColumns = byYear.has("Other") ? [...YEAR_LEVELS, "Other"] : YEAR_LEVELS;
+  const rows = [...matrix.entries()].map(([course, years]) => ({
+    course,
+    years,
+    total: Object.values(years).reduce((a, b) => a + b, 0),
+  }));
+  return {
+    total: people.length,
+    yearColumns,
+    byCourse: [...byCourse.entries()]
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label)),
+    byYear: yearColumns.filter((y) => byYear.has(y)).map((label) => ({ label, count: byYear.get(label) })),
+    matrix: rows.sort((a, b) => b.total - a.total || a.course.localeCompare(b.course)),
+  };
+}
+
+// GET /api/stats/entries?period=today|7d|30d
+//   ->  { total, yearColumns, byCourse: [{label, count}], byYear: [{label, count}],
+//         matrix: [{ course, total, years: { "1st Year": 3, ... } }] }
+// Every student is counted once, however many times they scanned in the period.
+export async function getEntryStats(period = "today") {
+  if (MOCK) {
+    const days = { today: 1, "7d": 7, "30d": 30 }[period] ?? 1;
+    const people = new Map();
+    for (const e of mockEntries) {
+      if (e.daysAgo >= days) continue;
+      const student = mockStudents.find((s) => s.studentID === e.studentID);
+      if (student) {
+        people.set(student.studentID, {
+          course: student.course.trim().toUpperCase(),
+          year: normalizeYearValue(student.year),
+        });
+      }
+    }
+    return summarizeEntries([...people.values()]);
+  }
+  return request(`/api/stats/entries?period=${encodeURIComponent(period)}`);
 }

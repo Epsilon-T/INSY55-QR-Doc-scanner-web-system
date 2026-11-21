@@ -60,11 +60,60 @@ const icons = {
 
 // Every page in the navbar. `roles` decides who sees it.
 const NAV_ITEMS = [
-  { to: "/", label: "Dashboard", icon: icons.dashboard, roles: ["Admin", "Security"] },
-  { to: "/students", label: "Student Information Management", icon: icons.students, roles: ["Admin"] },
-  { to: "/personnel", label: "Personnel Registration", icon: icons.personnel, roles: ["Admin"] },
-  { to: "/scanner", label: "Mobile QR Scanner", icon: icons.scanner, roles: ["Security"] },
+  {
+    to: "/",
+    label: "Dashboard",
+    description: "A summary of the daily gate activity",
+    icon: icons.dashboard,
+    roles: ["Admin", "Security"],
+  },
+  {
+    to: "/students",
+    label: "Student Information Management",
+    description: "Manage student records, photos and CORs",
+    icon: icons.students,
+    roles: ["Admin"],
+  },
+  {
+    to: "/personnel",
+    label: "Personnel Registration",
+    description: "Create and manage staff login accounts",
+    icon: icons.personnel,
+    roles: ["Admin"],
+  },
+  {
+    to: "/scanner",
+    label: "Mobile QR Scanner",
+    description: "Scan a student ID to check their COR",
+    icon: icons.scanner,
+    roles: ["Security"],
+  },
 ];
+
+const initials = (name) =>
+  name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
+
+// Live clock. It keeps its own timer, so only this small part redraws every second.
+function Clock({ compact = false }) {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const date = now.toLocaleDateString("en-PH", { weekday: "short", month: "short", day: "numeric" });
+  if (compact) {
+    const time = now.toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" });
+    return <span className="tabular-nums">{time} | {date}</span>;
+  }
+  const time = now.toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit", second: "2-digit" });
+  return (
+    <div className="leading-tight">
+      <p className="font-head text-xl font-bold tabular-nums">{time}</p>
+      <p className="text-sm text-muted">{date}</p>
+    </div>
+  );
+}
 
 const linkClass = ({ isActive }) =>
   `flex items-center gap-3 rounded-md border-l-4 px-3 py-2.5 font-medium ${
@@ -120,25 +169,6 @@ export default function Layout() {
 
   return (
     <div className="min-h-screen md:grid md:grid-cols-[16rem_1fr]">
-      {/* Small screens: top bar with the menu button on the left */}
-      <header className="sticky top-0 z-20 bg-navy text-white md:hidden">
-        <div className="flex items-center gap-3 px-4 py-3">
-          <button
-            onClick={() => setOpen(true)}
-            aria-expanded={open}
-            aria-controls="mobile-menu"
-            className="flex shrink-0 items-center gap-2 rounded-md bg-white/10 px-3 py-1.5 text-sm font-semibold hover:bg-white/20"
-          >
-            {icons.menu}
-            {current.label.length > 18 ? current.label.split(" ").slice(0, 2).join(" ") : current.label}
-          </button>
-          <Link to="/" aria-label="School University Academy, go to Dashboard" className="flex min-w-0 flex-1 items-center justify-end gap-2.5">
-            <span className="min-w-0 truncate font-head text-lg font-bold text-brass">School University Academy</span>
-            <Logo size="size-9" />
-          </Link>
-        </div>
-      </header>
-
       {/* Small screens: dim the page, then slide a full-height menu in from the left */}
       {open && <div className="fixed inset-0 z-30 bg-black/40 md:hidden" onClick={() => setOpen(false)} aria-hidden="true" />}
       <aside
@@ -211,11 +241,59 @@ export default function Layout() {
         </div>
       </aside>
 
-      <main className="min-w-0 px-5 pb-12 pt-7 md:px-8">
-        <div className="mx-auto max-w-6xl">
-          <Outlet />
-        </div>
-      </main>
+      <div className="min-w-0">
+        {/* Header: clock on the left, page description in the middle, welcome on the right */}
+        <header className="sticky top-0 z-20 border-b border-line bg-white">
+          <div className="mx-auto grid max-w-6xl grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-5 py-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_minmax(0,1fr)] md:px-8">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setOpen(true)}
+                aria-label="Open menu"
+                aria-expanded={open}
+                aria-controls="mobile-menu"
+                className="rounded-md border border-line p-2 hover:bg-paper md:hidden"
+              >
+                {icons.menu}
+              </button>
+              <Link to="/" aria-label="School University Academy, go to Dashboard" className="md:hidden">
+                <Logo size="size-10" />
+              </Link>
+              <div className="hidden md:block">
+                <Clock />
+              </div>
+            </div>
+
+            <div className="min-w-0 text-center">
+              <p className="truncate font-head text-lg font-bold leading-tight">{current.label}</p>
+              <p className="hidden truncate text-sm text-muted md:block">{current.description}</p>
+              <p className="truncate text-xs text-muted md:hidden">
+                <Clock compact />
+              </p>
+            </div>
+
+            <div className="flex min-w-0 items-center justify-end gap-3">
+              <div className="hidden min-w-0 text-right md:block">
+                <p className="truncate font-semibold leading-tight" title={user.staffName}>
+                  Welcome, {user.staffName}
+                </p>
+                <p className="text-sm text-muted">{user.staffRole === "Security" ? "Security Staff" : "Admin"}</p>
+              </div>
+              <span
+                className="grid size-10 shrink-0 place-items-center rounded-full bg-navy font-bold text-white"
+                title={`${user.staffName} (${user.staffRole})`}
+              >
+                {initials(user.staffName)}
+              </span>
+            </div>
+          </div>
+        </header>
+
+        <main className="px-5 pb-12 pt-7 md:px-8">
+          <div className="mx-auto max-w-6xl">
+            <Outlet />
+          </div>
+        </main>
+      </div>
     </div>
   );
 }

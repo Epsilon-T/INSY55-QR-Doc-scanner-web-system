@@ -400,11 +400,11 @@ export default function StudentManagement() {
                       <col className="w-56" />
                     </colgroup>
                     <thead>
-                      <tr>
+                      <tr className="text-center border-b border-line">
                         {["Student number", "Name", "Section", "COR", "Photo"].map((h) => (
                           <th key={h} className={th}>{h}</th>
                         ))}
-                        <th className={`${th} text-right`}>Actions</th>
+                        <th className={`${th} text-center`}>Actions</th>
                       </tr>
                     </thead>
                     {g.years.map((y) => (
@@ -430,8 +430,8 @@ export default function StudentManagement() {
                                 <span className="min-w-0 truncate font-medium" title={s.name}>{s.name}</span>
                               </div>
                             </td>
-                            <td className={td}>{s.section}</td>
-                            <td className={td}>
+                            <td className={`${td} text-center`}>{s.section}</td>
+                            <td className={`${td} text-center`}>
                               {s.imageUrl ? (
                                 <button
                                   className="rounded-full bg-ok/10 px-3 py-1 text-sm font-semibold text-ok hover:bg-ok/20"
@@ -443,7 +443,7 @@ export default function StudentManagement() {
                                 <span className="rounded-full bg-bad/10 px-3 py-1 text-sm font-semibold text-bad">Missing</span>
                               )}
                             </td>
-                            <td className={td}>
+                            <td className={`${td} text-center`}>
                               {s.photoUrl ? (
                                 <span className="rounded-full bg-ok/10 px-3 py-1 text-sm font-semibold text-ok">On file</span>
                               ) : (
@@ -451,7 +451,7 @@ export default function StudentManagement() {
                               )}
                             </td>
                             <td className={td}>
-                              <div className="flex justify-end gap-2">
+                              <div className="flex justify-center gap-2">
                                 <button className={`${btnSmall} border-line text-navy hover:bg-paper`} onClick={() => setModal({ type: "qr", student: s })}>
                                   QR
                                 </button>

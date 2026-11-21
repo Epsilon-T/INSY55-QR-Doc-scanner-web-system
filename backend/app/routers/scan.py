@@ -5,8 +5,8 @@ from sqlalchemy.dialects.mysql import insert
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..helpers import STUDENT_COLUMNS, student_dict, today_local
-from ..models import Log, Student
+from ..helpers import STUDENT_COLUMNS, normalize_year, now_local, student_dict
+from ..models import Log, Scan, Student
 from ..security import require_roles
 
 router = APIRouter(prefix="/api", tags=["scan"])
@@ -16,10 +16,12 @@ class ScanRequest(BaseModel):
     code: str
 
 
-def record_scan(db: Session, entered: bool) -> None:
-    """Adds 1 to today's row in the logs table, creating the row on the first scan of the day."""
+def record_scan(db: Session, entered: bool, staff, row=None) -> None:
+    """Saves the scan in two places: the daily totals (logs) and the detailed history (scans)."""
+    now = now_local()
+
     stmt = insert(Log).values(
-        date=today_local(),
+        date=now.date(),
         studentEntered=1 if entered else 0,
         studentDenied=0 if entered else 1,
     )
@@ -28,28 +30,39 @@ def record_scan(db: Session, entered: bool) -> None:
         studentDenied=Log.studentDenied + stmt.inserted.studentDenied,
     )
     db.execute(stmt)
+
+    db.add(
+        Scan(
+            scannedAt=now,
+            status="entered" if entered else "denied",
+            studentID=row.studentID if row else None,
+            course=row.course.strip().upper() if row else None,
+            year=normalize_year(row.year) if row else None,
+            staffID=staff.staffID,
+        )
+    )
     db.commit()
 
 
 @router.post("/scan")
-def scan(data: ScanRequest, db: Session = Depends(get_db), _staff=Depends(require_roles("Security"))):
+def scan(data: ScanRequest, db: Session = Depends(get_db), staff=Depends(require_roles("Security"))):
     row = db.execute(select(*STUDENT_COLUMNS).where(Student.hashedID == data.code.strip())).first()
 
     if row is None:
-        record_scan(db, entered=False)
+        record_scan(db, False, staff)
         return {"status": "denied", "reason": "This QR code is not recognized.", "student": None}
 
     if not row.hasImage:
-        record_scan(db, entered=False)
+        record_scan(db, False, staff, row)
         return {"status": "denied", "reason": "No COR is on file for this student.", "student": student_dict(row)}
 
     if not row.hasPhoto:
-        record_scan(db, entered=False)
+        record_scan(db, False, staff, row)
         return {
             "status": "denied",
             "reason": "No face photo is on file for this student.",
             "student": student_dict(row),
         }
 
-    record_scan(db, entered=True)
+    record_scan(db, True, staff, row)
     return {"status": "entered", "student": student_dict(row)}

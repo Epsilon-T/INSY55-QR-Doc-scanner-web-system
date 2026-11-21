@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import re
 from datetime import date, datetime
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
@@ -14,8 +15,26 @@ def hashed_id(student_id: str) -> str:
     return hmac.new(settings.qr_secret_key.encode(), student_id.encode(), hashlib.sha256).hexdigest()
 
 
+def now_local() -> datetime:
+    """The current school time, without timezone info, ready to store in MySQL."""
+    return datetime.now(ZoneInfo(settings.app_timezone)).replace(tzinfo=None)
+
+
 def today_local() -> date:
-    return datetime.now(ZoneInfo(settings.app_timezone)).date()
+    return now_local().date()
+
+
+YEAR_LEVELS = ["1st Year", "2nd Year", "3rd Year", "4th Year"]
+
+
+def normalize_year(value: str | None) -> str:
+    """Turns "2nd year", " 2nd Year " or "2" into "2nd Year". Anything else becomes "Other"."""
+    text = (value or "").strip().lower()
+    for level in YEAR_LEVELS:
+        if level.lower() == text:
+            return level
+    match = re.match(r"^([1-4])", text)
+    return YEAR_LEVELS[int(match.group(1)) - 1] if match else "Other"
 
 
 def detect_image_type(data: bytes) -> str | None:
