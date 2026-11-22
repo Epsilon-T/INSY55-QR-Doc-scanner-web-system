@@ -120,7 +120,7 @@ function StaffForm({ account, onSave, onCancel }) {
             <option value="Admin">Admin</option>
           </select>
         </Field>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-1">
           <Field
             label={isEdit ? "New password" : "Password"}
             hint={isEdit ? "Leave blank to keep the current one." : "At least 6 characters."}
