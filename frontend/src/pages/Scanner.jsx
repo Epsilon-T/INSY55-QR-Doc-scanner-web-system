@@ -96,8 +96,8 @@ export default function Scanner() {
 
   return (
     <div className="mx-auto max-w-md">
-      <h1 className="text-3xl font-bold">Mobile QR Scanner</h1>
-      <p className="mb-5 text-muted">Point the camera at the QR code on the student's ID.</p>
+      <h1 className="sr-only">Mobile QR Scanner</h1>
+      <p className="mb-5 text-center text-muted">Point the camera at the QR code on the student's ID.</p>
 
       {phase !== "result" && (
         <>

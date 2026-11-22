@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from .config import settings
 from .database import get_db
-from .routers import auth, logs, scan, staff, students
+from .routers import auth, logs, scan, staff, stats, students
 
 app = FastAPI(title="School University Academy QR System")
 app.include_router(auth.router)
@@ -16,6 +16,7 @@ app.include_router(students.router)
 app.include_router(staff.router)
 app.include_router(scan.router)
 app.include_router(logs.router)
+app.include_router(stats.router)
 
 
 @app.get("/api/health")
