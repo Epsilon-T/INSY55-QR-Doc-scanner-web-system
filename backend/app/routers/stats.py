@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..helpers import YEAR_LEVELS, normalize_year, today_local
-from ..models import Scan
+from ..models import Scan, Student
 from ..security import require_roles
 
 router = APIRouter(prefix="/api/stats", tags=["stats"])
@@ -43,9 +43,14 @@ def entry_stats(
         matrix.setdefault(course, Counter())[year] += 1
 
     year_columns = YEAR_LEVELS + (["Other"] if by_year["Other"] else [])
+
+    # Every course in the system, sorted. The website uses it to give each course the same color everywhere.
+    all_courses = sorted({(c or "").strip().upper() for c in db.scalars(select(Student.course).distinct())} - {""})
+
     return {
         "period": period,
         "total": len(latest),
+        "allCourses": all_courses,
         "yearColumns": year_columns,
         "byCourse": [
             {"label": c, "count": n} for c, n in sorted(by_course.items(), key=lambda x: (-x[1], x[0]))
@@ -54,5 +59,42 @@ def entry_stats(
         "matrix": [
             {"course": c, "total": sum(years.values()), "years": dict(years)}
             for c, years in sorted(matrix.items(), key=lambda x: (-sum(x[1].values()), x[0]))
+        ],
+    }
+
+
+@router.get("/records")
+def record_stats(db: Session = Depends(get_db), _staff=Depends(require_roles("Admin", "Security"))):
+    """How many students are missing their COR and/or face photo, and who they are."""
+    rows = db.execute(
+        select(
+            Student.studentID,
+            Student.name,
+            Student.course,
+            Student.section,
+            Student.year,
+            Student.image.is_(None).label("noCor"),
+            Student.photo.is_(None).label("noPhoto"),
+        ).order_by(Student.course, Student.year, Student.section, Student.name)
+    ).all()
+
+    incomplete = [r for r in rows if r.noCor or r.noPhoto]
+    return {
+        "totalStudents": len(rows),
+        "complete": len(rows) - len(incomplete),
+        "missingCor": sum(1 for r in rows if r.noCor),
+        "missingPhoto": sum(1 for r in rows if r.noPhoto),
+        "missingBoth": sum(1 for r in rows if r.noCor and r.noPhoto),
+        "students": [
+            {
+                "studentID": r.studentID,
+                "name": r.name,
+                "course": r.course.strip().upper(),
+                "section": r.section,
+                "year": r.year,
+                "missingCor": bool(r.noCor),
+                "missingPhoto": bool(r.noPhoto),
+            }
+            for r in incomplete
         ],
     }

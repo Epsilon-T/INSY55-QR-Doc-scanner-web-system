@@ -1,13 +1,14 @@
-import { useEffect, useId, useState } from "react";
-import { getDailyLogs, getEntryStats } from "../api.js";
+import { useEffect, useId, useMemo, useState } from "react";
+import { getDailyLogs, getEntryStats, getRecordStats } from "../api.js";
+import FilterPill from "../components/FilterPill.jsx";
+import Modal from "../components/Modal.jsx";
+import { downloadCsv } from "../csv.js";
+import { PALETTE, courseColor } from "../colors.js";
 
 const fmt = (iso) =>
   new Date(iso + "T00:00:00").toLocaleDateString("en-PH", { month: "short", day: "numeric" });
 
 const panel = "rounded-lg border border-line bg-white p-5";
-
-// Slice colors, picked to sit well with the navy and brass of the rest of the system
-const PALETTE = ["#1b3a5c", "#b8892b", "#2e7d4f", "#5b8bb5", "#c76b4a", "#7a6fa8", "#4aa3a2", "#8d99a6"];
 
 const PERIODS = [
   { value: "today", label: "Today" },
@@ -177,7 +178,15 @@ function EntryChart() {
   }, [period]);
 
   const list = stats ? (groupBy === "course" ? stats.byCourse : stats.byYear) : [];
-  const slices = list.map((s, i) => ({ ...s, color: PALETTE[i % PALETTE.length] }));
+  // A course keeps the same color as on the Student page; year levels have their own fixed colors
+  const allCourses = stats?.allCourses ?? [];
+  const slices = list.map((s) => ({
+    ...s,
+    color:
+      groupBy === "course"
+        ? courseColor(s.label, allCourses)
+        : PALETTE[Math.max(0, stats.yearColumns.indexOf(s.label)) % PALETTE.length],
+  }));
   const yearTotals = stats
     ? stats.yearColumns.map((y) => stats.matrix.reduce((n, row) => n + (row.years[y] ?? 0), 0))
     : [];
@@ -207,7 +216,7 @@ function EntryChart() {
       {!stats && !error && <p className="text-muted">Loading...</p>}
 
       {stats && (
-        <div className={`grid items-start gap-8 ${stats.total > 0 ? "lg:grid-cols-2" : ""}`}>
+        <div className={`grid grid-cols-1 items-start gap-8 ${stats.total > 0 ? "lg:grid-cols-2" : ""}`}>
           <div className="flex flex-wrap items-center gap-6">
             <Donut key={`${version}-${groupBy}`} slices={slices} total={stats.total} active={active} />
             <div className="min-w-48 flex-1">
@@ -405,6 +414,228 @@ function WeeklyChart({ logs }) {
   );
 }
 
+/* ---------- Student records: who is missing a COR or a face photo ---------- */
+
+const MISSING_FILTERS = [
+  { value: "all", label: "All" },
+  { value: "cor", label: "No COR", color: "#b23a3a" },
+  { value: "photo", label: "No photo", color: "#b8892b" },
+  { value: "both", label: "Missing both", color: "#7a6fa8" },
+];
+const MISSING_TEST = {
+  all: () => true,
+  cor: (s) => s.missingCor,
+  photo: (s) => s.missingPhoto,
+  both: (s) => s.missingCor && s.missingPhoto,
+};
+
+function Tile({ value, label, about, accent }) {
+  const counted = useCountUp(value);
+  return (
+    <div className={`grid rounded-lg border border-l-8 border-line bg-white px-4 py-3 ${accent}`}>
+      <span className="font-head text-3xl font-bold leading-none tabular-nums">{counted}</span>
+      <span className="mt-1.5 font-semibold">{label}</span>
+      <span className="text-sm text-muted">{about}</span>
+    </div>
+  );
+}
+
+// The detailed report: every student with something missing, with a filter, a search and a CSV download
+function RecordsReport({ report, onClose }) {
+  const [filter, setFilter] = useState("all");
+  const [query, setQuery] = useState("");
+
+  // The search narrows the list first, and the numbers on the filter buttons follow it
+  const matches = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return report.students;
+    return report.students.filter((s) =>
+      [s.studentID, s.name, s.course, s.section, s.year].some((v) => String(v).toLowerCase().includes(q))
+    );
+  }, [report, query]);
+  const rows = matches.filter(MISSING_TEST[filter]);
+
+  function download() {
+    downloadCsv(
+      `incomplete-student-records-${new Date().toISOString().slice(0, 10)}.csv`,
+      ["Student number", "Name", "Course", "Year", "Section", "Missing COR", "Missing photo"],
+      rows.map((s) => [s.studentID, s.name, s.course, s.year, s.section, s.missingCor ? "Yes" : "No", s.missingPhoto ? "Yes" : "No"])
+    );
+  }
+
+  return (
+    <Modal
+      title="Students with incomplete records"
+      subtitle="Each of these students is missing a COR, a face photo, or both."
+      size="max-w-4xl"
+      onClose={onClose}
+    >
+      <div className="grid gap-4 p-6">
+        <div className="flex flex-wrap items-center gap-3">
+          <input
+            type="text"
+            autoComplete="off"
+            className="w-full rounded-xl border border-line bg-white px-3.5 py-2.5 shadow-sm transition placeholder:text-muted/70 focus:border-navy focus:outline-none focus:ring-4 focus:ring-navy/15 sm:max-w-xs"
+            placeholder="Search by name, number or course"
+            aria-label="Search the report"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <div role="group" aria-label="Filter by what is missing" className="flex flex-wrap gap-2">
+            {MISSING_FILTERS.map((f) => (
+              <FilterPill
+                key={f.value}
+                label={f.label}
+                count={matches.filter(MISSING_TEST[f.value]).length}
+                color={f.color}
+                active={filter === f.value}
+                onClick={() => setFilter(f.value)}
+              />
+            ))}
+          </div>
+        </div>
+
+        {rows.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-line px-4 py-10 text-center text-muted">
+            No students match.
+          </p>
+        ) : (
+          <div className="max-h-[45vh] overflow-auto rounded-md border border-line">
+            <table className="w-full min-w-[40rem] border-collapse text-left text-sm">
+              <thead>
+                <tr>
+                  {["Student number", "Name", "Course", "Year", "Section", "Missing"].map((h) => (
+                    <th key={h} className="sticky top-0 bg-paper px-3 py-2.5 font-semibold text-muted">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((s) => (
+                  <tr key={s.studentID} className="border-t border-line hover:bg-paper">
+                    <td className="px-3 py-2.5 tabular-nums">{s.studentID}</td>
+                    <td className="px-3 py-2.5 font-medium">{s.name}</td>
+                    <td className="px-3 py-2.5">{s.course}</td>
+                    <td className="px-3 py-2.5">{s.year}</td>
+                    <td className="px-3 py-2.5">{s.section}</td>
+                    <td className="px-3 py-2.5">
+                      <div className="flex gap-1.5">
+                        {s.missingCor && (
+                          <span className="rounded-full bg-bad/10 px-2.5 py-0.5 text-xs font-semibold text-bad">COR</span>
+                        )}
+                        {s.missingPhoto && (
+                          <span className="rounded-full bg-brass/15 px-2.5 py-0.5 text-xs font-semibold text-brass">Photo</span>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line bg-paper px-6 py-4">
+        <p className="text-sm text-muted">{rows.length} {rows.length === 1 ? "student" : "students"} shown</p>
+        <div className="flex gap-3">
+          <button className="rounded-md border border-line bg-white px-5 py-2.5 font-semibold hover:bg-paper" onClick={onClose}>
+            Close
+          </button>
+          <button
+            className="rounded-md bg-navy px-5 py-2.5 font-semibold text-white hover:bg-navy-dark disabled:opacity-60"
+            onClick={download}
+            disabled={rows.length === 0}
+          >
+            Download CSV
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function RecordsPanel() {
+  const [report, setReport] = useState(null);
+  const [error, setError] = useState("");
+  const [open, setOpen] = useState(false);
+  const [grown, setGrown] = useState(false); // starts false so the bar begins empty, then fills
+
+  useEffect(() => {
+    getRecordStats().then(setReport).catch((e) => setError(e.message));
+  }, []);
+
+  useEffect(() => {
+    if (!report) return undefined;
+    const timer = setTimeout(() => setGrown(true), 60);
+    return () => clearTimeout(timer);
+  }, [report]);
+
+  const incomplete = report ? report.students.length : 0;
+  const percent = report && report.totalStudents > 0 ? Math.round((report.complete / report.totalStudents) * 100) : 0;
+
+  return (
+    <section className={`${panel} mb-5`}>
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-bold">Student records</h2>
+          <p className="text-sm text-muted">A student needs both a COR and a face photo to be verified at the gate.</p>
+        </div>
+        <button
+          className="rounded-md bg-navy px-4 py-2 font-semibold text-white hover:bg-navy-dark disabled:opacity-50"
+          onClick={() => setOpen(true)}
+          disabled={incomplete === 0}
+        >
+          View detailed report
+        </button>
+      </div>
+
+      {error && <p className="text-bad" role="alert">{error}</p>}
+      {!report && !error && <p className="text-muted">Loading...</p>}
+
+      {report && (
+        <>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Tile value={report.missingCor} label="No COR" about="Students without a COR image" accent="border-l-bad" />
+            <Tile value={report.missingPhoto} label="No photo" about="Students without a face photo" accent="border-l-brass" />
+            <Tile value={report.missingBoth} label="Missing both" about="No COR and no photo" accent="border-l-[#7a6fa8]" />
+          </div>
+
+          <div className="mt-5">
+            <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-2 text-sm">
+              {report.totalStudents === 0 ? (
+                <span className="text-muted">No students have been registered yet.</span>
+              ) : incomplete === 0 ? (
+                <span className="font-semibold text-ok">All {report.totalStudents} students have a COR and a photo.</span>
+              ) : (
+                <span>
+                  <span className="font-semibold">{report.complete}</span> of {report.totalStudents} students have complete
+                  records
+                </span>
+              )}
+              {report.totalStudents > 0 && <span className="font-semibold tabular-nums text-muted">{percent}%</span>}
+            </div>
+            <div
+              className="h-2.5 overflow-hidden rounded-full bg-line"
+              role="progressbar"
+              aria-valuenow={percent}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label="Students with complete records"
+            >
+              <div
+                className="h-full rounded-full bg-ok transition-[width] duration-700 ease-out motion-reduce:transition-none"
+                style={{ width: grown ? `${percent}%` : "0%" }}
+              />
+            </div>
+          </div>
+        </>
+      )}
+
+      {open && report && <RecordsReport report={report} onClose={() => setOpen(false)} />}
+    </section>
+  );
+}
+
 /* ---------- Page ---------- */
 
 export default function Dashboard() {
@@ -435,7 +666,9 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="mb-5 grid gap-5">
+      <RecordsPanel />
+
+      <div className="mb-5 grid grid-cols-1 gap-5">
         <WeeklyChart logs={logs} />
 
         <section className={panel}>

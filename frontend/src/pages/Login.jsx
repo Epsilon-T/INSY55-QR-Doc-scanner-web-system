@@ -112,7 +112,7 @@ export default function Login() {
             <form className="grid gap-5" onSubmit={handleSubmit}>
               <div {...reveal(1)}>
                 <h2 className="text-3xl font-bold">Welcome back</h2>
-                <p className="mt-1 text-muted">Sign in with the account your administrator gave you.</p>
+                <p className="mt-1 text-muted">Log in with the account your administrator gave you.</p>
               </div>
 
               <div {...reveal(2, "grid gap-1.5")}>
@@ -207,7 +207,7 @@ export default function Login() {
                   </>
                 ) : (
                   <>
-                    Sign in
+                    Log in
                     <Icon className="size-5 transition-transform group-hover:translate-x-1">
                       <path d="M5 12h14M13 6l6 6-6 6" />
                     </Icon>

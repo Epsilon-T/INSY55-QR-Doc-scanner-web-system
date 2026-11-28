@@ -12,7 +12,7 @@ class Settings(BaseSettings):
 
     qr_secret_key: str
     jwt_secret_key: str
-    jwt_expire_minutes: int = 480
+    jwt_expire_minutes: int = 1
     app_timezone: str = "Asia/Manila"
 
     # Folder with the built website (npm run build). Empty means ../frontend/dist next to this backend folder.

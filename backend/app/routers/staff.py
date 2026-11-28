@@ -1,5 +1,3 @@
-import re
-
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import func, select
@@ -8,13 +6,12 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import Staff
 from ..security import require_roles
+from ..validation import check_password, clean_email, clean_name
 from .auth import user_info
 
 router = APIRouter(prefix="/api/staff", tags=["staff"])
 
 ROLES = ("Admin", "Security")
-MIN_PASSWORD = 6
-EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 class NewStaff(BaseModel):
@@ -32,20 +29,11 @@ class StaffUpdate(BaseModel):
 
 
 def check_details(name: str, email: str, role: str) -> tuple[str, str]:
-    name = name.strip()
-    email = email.strip().lower()
-    if not name or not email:
-        raise HTTPException(status_code=400, detail="Please fill in all the fields.")
-    if not EMAIL_PATTERN.match(email):
-        raise HTTPException(status_code=400, detail="Enter a valid email address.")
+    name = clean_name(name)
+    email = clean_email(email)
     if role not in ROLES:
         raise HTTPException(status_code=400, detail="Choose a valid role.")
     return name, email
-
-
-def check_password(password: str) -> None:
-    if len(password) < MIN_PASSWORD:
-        raise HTTPException(status_code=400, detail=f"The password must be at least {MIN_PASSWORD} characters.")
 
 
 @router.get("")

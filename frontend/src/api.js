@@ -354,7 +354,38 @@ export async function getEntryStats(period = "today") {
         });
       }
     }
-    return summarizeEntries([...people.values()]);
+    return {
+      ...summarizeEntries([...people.values()]),
+      allCourses: [...new Set(mockStudents.map((s) => s.course.trim().toUpperCase()))].sort(),
+    };
   }
   return request(`/api/stats/entries?period=${encodeURIComponent(period)}`);
+}
+
+// GET /api/stats/records
+//   ->  { totalStudents, complete, missingCor, missingPhoto, missingBoth,
+//         students: [{ studentID, name, course, section, year, missingCor, missingPhoto }] }
+// "students" lists only the students that are missing a COR and/or a face photo.
+export async function getRecordStats() {
+  if (MOCK) {
+    const rows = mockStudents.map((s) => ({ ...s, missingCor: !s.imageUrl, missingPhoto: !s.photoUrl }));
+    const incomplete = rows.filter((r) => r.missingCor || r.missingPhoto);
+    return {
+      totalStudents: rows.length,
+      complete: rows.length - incomplete.length,
+      missingCor: rows.filter((r) => r.missingCor).length,
+      missingPhoto: rows.filter((r) => r.missingPhoto).length,
+      missingBoth: rows.filter((r) => r.missingCor && r.missingPhoto).length,
+      students: incomplete.map(({ studentID, name, course, section, year, missingCor, missingPhoto }) => ({
+        studentID,
+        name,
+        course: course.trim().toUpperCase(),
+        section,
+        year,
+        missingCor,
+        missingPhoto,
+      })),
+    };
+  }
+  return request("/api/stats/records");
 }

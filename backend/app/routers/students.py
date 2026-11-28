@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..helpers import STUDENT_COLUMNS, detect_image_type, hashed_id, student_dict
 from ..models import Student
+from ..validation import clean_course, clean_name, clean_section, clean_student_id, clean_year
 from ..security import require_roles, verify_image_token
 
 router = APIRouter(prefix="/api/students", tags=["students"])
@@ -26,19 +27,13 @@ async def read_image(upload: UploadFile | None, label: str) -> bytes | None:
     return data
 
 
-def clean(*values: str) -> list[str]:
-    cleaned = [v.strip() for v in values]
-    if not all(cleaned):
-        raise HTTPException(status_code=400, detail="Please fill in all the fields.")
-    return cleaned
-
-
 @router.get("")
-def list_students(db: Session = Depends(get_db), _staff=Depends(require_roles("Admin"))):
+def list_students(db: Session = Depends(get_db), staff=Depends(require_roles("Admin", "Security"))):
+    """Admins and Security Staff can look students up. Only Admins get the QR value (hashedID)."""
     rows = db.execute(
         select(*STUDENT_COLUMNS).order_by(Student.course, Student.year, Student.section, Student.name)
     ).all()
-    return [student_dict(r, include_hash=True) for r in rows]
+    return [student_dict(r, include_hash=staff.staffRole == "Admin") for r in rows]
 
 
 @router.post("")
@@ -53,7 +48,11 @@ async def add_student(
     db: Session = Depends(get_db),
     _staff=Depends(require_roles("Admin")),
 ):
-    student_id, name, course, section, year = clean(studentID, name, course, section, year)
+    student_id = clean_student_id(studentID)
+    name = clean_name(name)
+    course = clean_course(course)
+    section = clean_section(section)
+    year = clean_year(year)
     if db.get(Student, student_id) is not None:
         raise HTTPException(status_code=409, detail="A student with this number already exists.")
     cor_data = await read_image(image, "COR image")
@@ -62,7 +61,7 @@ async def add_student(
         Student(
             studentID=student_id,
             name=name,
-            course=course.upper(),
+            course=course,
             section=section,
             year=year,
             hashedID=hashed_id(student_id),
@@ -89,8 +88,10 @@ async def update_student(
     student = db.get(Student, student_id)
     if student is None:
         raise HTTPException(status_code=404, detail="Student not found.")
-    student.name, course, student.section, student.year = clean(name, course, section, year)
-    student.course = course.upper()
+    student.name = clean_name(name)
+    student.course = clean_course(course)
+    student.section = clean_section(section)
+    student.year = clean_year(year, keep=student.year)
     cor_data = await read_image(image, "COR image")
     photo_data = await read_image(photo, "photo")
     if cor_data is not None:  # no new file means keep the current one

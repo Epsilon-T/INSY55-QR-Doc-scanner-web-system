@@ -1,6 +1,6 @@
 // The school logo, from the public folder (public/School logo.png).
 // It sits on a white tile so it stays readable on the navy background.
-export const LOGO_SRC = "public/school logo.png";
+export const LOGO_SRC = "school logo.png";
 
 export default function Logo({ size = "size-12" }) {
   return (

@@ -1,16 +1,19 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import FilterPill from "../components/FilterPill.jsx";
 import Modal from "../components/Modal.jsx";
 import * as api from "../api.js";
 import { useAuth } from "../auth.jsx";
+import { PALETTE } from "../colors.js";
+import { Field, Select, inputClass, invalidClass } from "../components/FormControls.jsx";
+import { checkConfirm, checkEmail, checkName, checkPassword } from "../validators.js";
 
-const inputClass = "w-full rounded-md border border-line bg-white px-3 py-2.5";
 const btnPrimary =
   "rounded-md bg-navy px-5 py-2.5 font-semibold text-white hover:bg-navy-dark disabled:opacity-60";
 const btnSecondary = "rounded-md border border-line bg-white px-5 py-2.5 font-semibold hover:bg-paper";
 const btnDanger = "rounded-md bg-bad px-5 py-2.5 font-semibold text-white hover:opacity-90 disabled:opacity-60";
 const btnSmall = "rounded-md border bg-white px-3 py-1.5 text-sm font-semibold";
+
 const th = "bg-paper px-4 py-3 text-sm font-semibold text-muted";
-const td = "border-b border-line px-4 py-3.5";
 
 const EMPTY = { staffName: "", schoolEmail: "", staffRole: "Security", password: "", confirm: "" };
 
@@ -19,10 +22,32 @@ const initials = (name) =>
 
 const roleLabel = (role) => (role === "Security" ? "Security Staff" : "Admin");
 
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 // The two groups shown on the page, in this order
 const GROUPS = [
-  { role: "Admin", title: "Admins", about: "Can manage students and personnel", empty: "No admins yet." },
-  { role: "Security", title: "Security Staff", about: "Can scan student IDs at the gate", empty: "No security staff yet." },
+  {
+    role: "Admin",
+    title: "Admins",
+    about: "Can manage students and personnel",
+    empty: "No admins yet.",
+    dot: "bg-brass",
+    avatar: "bg-linear-to-br from-brass to-[#d9a93f]",
+  },
+  {
+    role: "Security",
+    title: "Security Staff",
+    about: "Can scan student IDs at the gate",
+    empty: "No security staff yet.",
+    dot: "bg-navy",
+    avatar: "bg-linear-to-br from-navy to-navy-dark",
+  },
+];
+
+const FILTERS = [
+  { value: "all", label: "All" },
+  { value: "Admin", label: "Admins", color: PALETTE[1] }, // brass, like the Admins group
+  { value: "Security", label: "Security staff", color: PALETTE[0] }, // navy, like the Security Staff group
 ];
 
 /* ---------- Small pieces ---------- */
@@ -36,23 +61,33 @@ function SearchIcon() {
   );
 }
 
-function Field({ label, hint, children }) {
+function CloseIcon() {
   return (
-    <label className="grid gap-1.5 text-sm font-medium">
-      {label}
-      {children}
-      {hint && <span className="text-xs font-normal text-muted">{hint}</span>}
-    </label>
+    <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+      <path d="M6 6l12 12M18 6 6 18" />
+    </svg>
   );
 }
 
-function StatCard({ value, label, about, accent }) {
+function PlusIcon() {
   return (
-    <div className={`grid rounded-lg border border-l-8 border-line bg-white px-5 py-4 ${accent}`}>
-      <span className="font-head text-4xl font-bold leading-none">{value}</span>
-      <span className="mt-2 font-semibold">{label}</span>
-      <span className="text-sm text-muted">{about}</span>
-    </div>
+    <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+// Marks the part of a name or email that matches what was typed in the search box
+function Highlight({ text, query }) {
+  const q = query.trim();
+  if (!q) return text;
+  const parts = text.split(new RegExp(`(${escapeRegExp(q)})`, "gi"));
+  return parts.map((part, i) =>
+    part.toLowerCase() === q.toLowerCase() ? (
+      <mark key={i} className="rounded bg-brass/25 px-0.5 text-inherit">{part}</mark>
+    ) : (
+      part
+    )
   );
 }
 
@@ -66,31 +101,58 @@ function StaffForm({ account, onSave, onCancel }) {
       : EMPTY
   );
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState("");
+  const [errors, setErrors] = useState({}); // field name -> message
+  const [formError, setFormError] = useState(""); // a problem reported by the server
   const [busy, setBusy] = useState(false);
+  const formRef = useRef(null);
 
-  const set = (key) => (e) => setFields((f) => ({ ...f, [key]: e.target.value }));
+  // New accounts need a password. When editing, a blank password keeps the current one.
+  const wantsPassword = !isEdit || fields.password !== "";
   const passwordType = showPassword ? "text" : "password";
+
+  // One check per field. Each returns a message, or "" when the value is fine.
+  const check = {
+    staffName: checkName,
+    schoolEmail: checkEmail,
+    staffRole: (v) => (v ? "" : "Choose a role."),
+    password: (v) => (wantsPassword ? checkPassword(v) : ""),
+    confirm: (v) => (wantsPassword ? checkConfirm(fields.password, v) : ""),
+  };
+
+  const touch = (key) => setErrors((e) => ({ ...e, [key]: check[key](fields[key]) }));
+  const change = (key) => (e) => {
+    const value = e.target.value;
+    setFields((f) => ({ ...f, [key]: value }));
+    // once a field shows an error, keep re-checking while the person fixes it
+    if (errors[key]) setErrors((er) => ({ ...er, [key]: check[key](value) }));
+    // changing the password also changes whether the confirmation still matches
+    if (key === "password" && fields.confirm) {
+      setErrors((er) => ({ ...er, confirm: checkConfirm(value, fields.confirm) }));
+    }
+  };
+  const flag = (key) => (errors[key] ? invalidClass : "");
+  const invalidProps = (key) => ({ "aria-invalid": errors[key] ? "true" : undefined });
+
+  const focusFirstError = () =>
+    requestAnimationFrame(() => formRef.current?.querySelector('[aria-invalid="true"]')?.focus());
 
   async function handleSubmit(e) {
     e.preventDefault();
-    setError("");
+    setFormError("");
 
-    // New accounts need a password. When editing, a blank password keeps the current one.
-    const wantsPassword = !isEdit || fields.password !== "";
-    if (wantsPassword) {
-      if (fields.password.length < 6) {
-        setError("The password must be at least 6 characters.");
-        return;
-      }
-      if (fields.password !== fields.confirm) {
-        setError("The two passwords do not match.");
-        return;
-      }
+    const found = {};
+    for (const key of Object.keys(check)) {
+      const problem = check[key](fields[key]);
+      if (problem) found[key] = problem;
+    }
+    setErrors(found);
+    if (Object.keys(found).length > 0) {
+      focusFirstError();
+      return;
     }
 
     const data = {
-      staffName: fields.staffName.trim(),
+      staffName: fields.staffName.trim().replace(/\s+/g, " "),
       schoolEmail: fields.schoolEmail.trim().toLowerCase(),
       staffRole: fields.staffRole,
     };
@@ -100,48 +162,79 @@ function StaffForm({ account, onSave, onCancel }) {
     try {
       await onSave(data);
     } catch (err) {
-      setError(err.message);
+      if (/already exists/i.test(err.message)) {
+        setErrors({ schoolEmail: err.message });
+        focusFirstError();
+      } else {
+        setFormError(err.message);
+      }
       setBusy(false);
     }
   }
 
   return (
-    <form onSubmit={handleSubmit}>
+    <form ref={formRef} noValidate onSubmit={handleSubmit}>
       <div className="grid gap-4 p-6">
-        <Field label="Full name">
-          <input className={inputClass} value={fields.staffName} onChange={set("staffName")} required />
+        <Field label="Full name" error={errors.staffName}>
+          <input
+            className={`${inputClass} ${flag("staffName")}`}
+            value={fields.staffName}
+            onChange={change("staffName")}
+            onBlur={() => touch("staffName")}
+            maxLength={100}
+            autoComplete="off"
+            {...invalidProps("staffName")}
+          />
         </Field>
-        <Field label="School email" hint="They use this to log in.">
-          <input type="email" className={inputClass} value={fields.schoolEmail} onChange={set("schoolEmail")} required />
+        <Field label="School email" error={errors.schoolEmail} hint="They use this to log in.">
+          <input
+            type="email"
+            className={`${inputClass} ${flag("schoolEmail")}`}
+            value={fields.schoolEmail}
+            onChange={change("schoolEmail")}
+            onBlur={() => touch("schoolEmail")}
+            maxLength={150}
+            autoComplete="off"
+            {...invalidProps("schoolEmail")}
+          />
         </Field>
-        <Field label="Role">
-          <select className={inputClass} value={fields.staffRole} onChange={set("staffRole")}>
+        <Field label="Role" error={errors.staffRole}>
+          <Select value={fields.staffRole} onChange={change("staffRole")} invalid={Boolean(errors.staffRole)}>
             <option value="Security">Security Staff (guard)</option>
             <option value="Admin">Admin</option>
-          </select>
+          </Select>
         </Field>
-        <div className="grid gap-4 sm:grid-cols-1">
+        <div className="grid gap-4 sm:grid-cols-2">
           <Field
             label={isEdit ? "New password" : "Password"}
-            hint={isEdit ? "Leave blank to keep the current one." : "At least 6 characters."}
+            error={errors.password}
+            hint={
+              isEdit
+                ? "Leave blank to keep the current one."
+                : "At least 8 characters, with a letter and a number."
+            }
           >
             <input
               type={passwordType}
-              className={inputClass}
+              className={`${inputClass} ${flag("password")}`}
               value={fields.password}
-              onChange={set("password")}
+              onChange={change("password")}
+              onBlur={() => touch("password")}
+              maxLength={100}
               autoComplete="new-password"
-              required={!isEdit}
+              {...invalidProps("password")}
             />
           </Field>
-          <Field label="Confirm password">
+          <Field label="Confirm password" error={errors.confirm}>
             <input
               type={passwordType}
-              className={inputClass}
+              className={`${inputClass} ${flag("confirm")}`}
               value={fields.confirm}
-              onChange={set("confirm")}
+              onChange={change("confirm")}
+              onBlur={() => touch("confirm")}
+              maxLength={100}
               autoComplete="new-password"
-              required={!isEdit || fields.password !== ""}
+              {...invalidProps("confirm")}
             />
           </Field>
         </div>
@@ -151,9 +244,9 @@ function StaffForm({ account, onSave, onCancel }) {
         </label>
       </div>
 
-      {error && (
+      {formError && (
         <p className="mx-6 mb-4 rounded-md border border-bad/30 bg-bad/10 px-3 py-2 text-sm text-bad" role="alert">
-          {error}
+          {formError}
         </p>
       )}
 
@@ -174,9 +267,11 @@ export default function Personnel() {
   const [staff, setStaff] = useState(null);
   const [loadError, setLoadError] = useState("");
   const [query, setQuery] = useState("");
+  const [roleFilter, setRoleFilter] = useState("all");
   const [modal, setModal] = useState(null); // { type: "add" | "edit" | "delete", account? }
   const [deleting, setDeleting] = useState(false);
   const [note, setNote] = useState(null); // message above the list: { kind: "ok" | "bad", text }
+  const searchRef = useRef(null);
 
   const refresh = useCallback(
     () => api.getStaff().then(setStaff).catch((e) => setLoadError(e.message)),
@@ -193,21 +288,41 @@ export default function Personnel() {
     return () => clearTimeout(timer);
   }, [note]);
 
+  // Press "/" anywhere on the page to jump to the search box
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey) return;
+      const tag = document.activeElement?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      e.preventDefault();
+      searchRef.current?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   const closeModal = useCallback(() => setModal(null), []);
 
-  const visible = useMemo(() => {
-    const q = query.trim().toLowerCase();
+  // Search first, then the role filter. The numbers on the filter buttons follow the search.
+  const matches = useMemo(() => {
     if (!staff) return [];
+    const q = query.trim().toLowerCase();
     if (!q) return staff;
-    return staff.filter((s) =>
-      [s.staffName, s.schoolEmail, roleLabel(s.staffRole)].some((v) => v.toLowerCase().includes(q))
-    );
+    return staff.filter((s) => [s.staffName, s.schoolEmail].some((v) => v.toLowerCase().includes(q)));
   }, [staff, query]);
 
-  const searching = query.trim() !== "";
-  const total = staff?.length ?? 0;
-  const adminCount = staff?.filter((s) => s.staffRole === "Admin").length ?? 0;
-  const securityCount = total - adminCount;
+  const counts = {
+    all: matches.length,
+    Admin: matches.filter((s) => s.staffRole === "Admin").length,
+    Security: matches.filter((s) => s.staffRole === "Security").length,
+  };
+  const shown = roleFilter === "all" ? matches : matches.filter((s) => s.staffRole === roleFilter);
+  const narrowed = query.trim() !== "" || roleFilter !== "all";
+
+  function clearFilters() {
+    setQuery("");
+    setRoleFilter("all");
+  }
 
   async function handleSave(data) {
     if (modal.type === "edit") {
@@ -239,36 +354,66 @@ export default function Personnel() {
   if (loadError) return <p className="text-bad" role="alert">{loadError}</p>;
   if (!staff) return <p className="text-muted">Loading personnel...</p>;
 
-  const sections = GROUPS.map((g) => ({ ...g, list: visible.filter((s) => s.staffRole === g.role) }));
+  const sections = GROUPS.map((g) => ({ ...g, list: shown.filter((s) => s.staffRole === g.role) }));
 
   return (
     <>
       <h1 className="sr-only">Personnel Registration</h1>
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-3">
-        <StatCard value={total} label="Total personnel" about="Accounts that can log in" accent="border-l-navy" />
-        <StatCard value={adminCount} label={adminCount === 1 ? "Admin" : "Admins"} about="Manage students and personnel" accent="border-l-brass" />
-        <StatCard value={securityCount} label="Security staff" about="Scan student IDs at the gate" accent="border-l-ok" />
-      </div>
-
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="relative w-full max-w-sm">
-          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted">
+      {/* Search, role filter and the register button */}
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        <div className="relative w-full sm:w-auto sm:min-w-72 sm:flex-1 sm:max-w-md">
+          <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted">
             <SearchIcon />
           </span>
           <input
-            className="w-full rounded-md border border-line bg-white py-2.5 pl-10 pr-3"
-            type="search"
-            placeholder="Search by name, email or role"
+            ref={searchRef}
+            type="text"
+            autoComplete="off"
+            className="w-full rounded-xl border border-line bg-white py-2.5 pl-11 pr-11 shadow-sm transition placeholder:text-muted/70 focus:border-navy focus:outline-none focus:ring-4 focus:ring-navy/15"
+            placeholder="Search by name or email"
             aria-label="Search personnel"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => e.key === "Escape" && setQuery("")}
           />
+          {query ? (
+            <button
+              type="button"
+              aria-label="Clear search"
+              onClick={() => {
+                setQuery("");
+                searchRef.current?.focus();
+              }}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-muted hover:bg-paper hover:text-ink"
+            >
+              <CloseIcon />
+            </button>
+          ) : (
+            <kbd className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 rounded border border-line bg-paper px-1.5 text-xs text-muted sm:block">
+              /
+            </kbd>
+          )}
         </div>
-        <div className="flex items-center gap-4">
-          <p className="text-sm text-muted">Showing {visible.length} of {total} personnel</p>
-          <button className={btnPrimary} onClick={() => setModal({ type: "add" })}>Register personnel</button>
-        </div>
+
+        <button className={`${btnPrimary} flex items-center gap-2 sm:ml-auto`} onClick={() => setModal({ type: "add" })}>
+          <PlusIcon />
+          Register personnel
+        </button>
+      </div>
+
+      {/* One colored button per role, with its count */}
+      <div role="group" aria-label="Filter by role" className="mb-5 flex flex-wrap gap-2">
+        {FILTERS.map((f) => (
+          <FilterPill
+            key={f.value}
+            label={f.label}
+            count={counts[f.value]}
+            color={f.color}
+            active={roleFilter === f.value}
+            onClick={() => setRoleFilter(f.value)}
+          />
+        ))}
       </div>
 
       {note && (
@@ -282,76 +427,97 @@ export default function Personnel() {
         </p>
       )}
 
-      {searching && visible.length === 0 && (
-        <p className="rounded-lg border border-line bg-white px-4 py-10 text-center text-muted">
-          No personnel match your search.
+      {query.trim() !== "" && shown.length > 0 && (
+        <p className="mb-4 text-sm text-muted">
+          {shown.length} {shown.length === 1 ? "result" : "results"} for &ldquo;{query.trim()}&rdquo;
         </p>
       )}
 
-      <div className="grid gap-5">
+      {narrowed && shown.length === 0 && (
+        <div className="grid justify-items-center gap-2 rounded-xl border border-dashed border-line bg-white px-4 py-12 text-center">
+          <span className="text-muted"><SearchIcon /></span>
+          <p className="font-semibold">No personnel found</p>
+          <p className="text-sm text-muted">Try a different name or email, or another role.</p>
+          <button className={`${btnSecondary} mt-2`} onClick={clearFilters}>Clear search and filters</button>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-8">
         {sections.map((g) => {
-          if (searching && g.list.length === 0) return null;
+          if (g.list.length === 0 && narrowed) return null;
           return (
-            <section key={g.role} className="overflow-hidden rounded-lg border border-line bg-white shadow-sm">
-              <div className="flex flex-wrap items-baseline gap-x-3 bg-navy px-5 py-3.5 text-white">
-                <h2 className="text-xl font-bold">{g.title}</h2>
-                <span className="text-sm text-slate-300">
-                  {g.list.length} {g.list.length === 1 ? "account" : "accounts"}
-                </span>
-                <span className="text-sm text-slate-300 sm:ml-auto">{g.about}</span>
+            <section key={g.role} aria-label={g.title}>
+              <div className="mb-3 flex flex-wrap items-baseline gap-x-3">
+                <span className={`size-2.5 self-center rounded-full ${g.dot}`} />
+                <h2 className="text-lg font-bold">{g.title}</h2>
+                <span className="text-sm text-muted">{g.about}</span>
               </div>
 
               {g.list.length === 0 ? (
-                <p className="px-5 py-8 text-center text-muted">{g.empty}</p>
+                <p className="rounded-xl border border-dashed border-line bg-white px-5 py-8 text-center text-muted">{g.empty}</p>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[40rem] table-fixed border-collapse text-left">
-                    <colgroup>
+                <div className="overflow-x-auto rounded-xl border border-line bg-white shadow-sm">
+                  {/* On phones each row stacks into a small card; from large screens up it is a normal table */}
+                  <table className="block w-full border-collapse text-left lg:table lg:min-w-[40rem] lg:table-fixed">
+                    <colgroup className="hidden lg:table-column-group">
                       <col className="w-1/3" />
                       <col />
                       <col className="w-44" />
                     </colgroup>
-                    <thead>
+                    <thead className="hidden lg:table-header-group">
                       <tr>
                         <th className={th}>Name</th>
                         <th className={th}>Email</th>
                         <th className={`${th} text-right`}>Actions</th>
                       </tr>
                     </thead>
-                    <tbody>
-                      {g.list.map((s) => (
-                        <tr key={s.staffID} className="hover:bg-paper">
-                          <td className={td}>
-                            <div className="flex min-w-0 items-center gap-3">
-                              <span className="grid size-9 shrink-0 place-items-center rounded-full bg-navy/10 text-sm font-bold text-navy">
-                                {initials(s.staffName)}
+                    <tbody className="block lg:table-row-group lg:[&>tr:last-child>td]:border-b-0">
+                      {g.list.map((s) => {
+                        const isMe = s.staffID === user.staffID;
+                        return (
+                          <tr
+                            key={s.staffID}
+                            className="block border-b border-line p-4 last:border-b-0 hover:bg-paper lg:table-row lg:border-b-0 lg:p-0"
+                          >
+                            <td className="block lg:table-cell lg:border-b lg:border-line lg:px-4 lg:py-3.5">
+                              <div className="flex min-w-0 items-center gap-3">
+                                <span className={`grid size-9 shrink-0 place-items-center rounded-full text-sm font-bold text-white shadow-sm ${g.avatar}`}>
+                                  {initials(s.staffName)}
+                                </span>
+                                <span className="min-w-0 truncate font-medium" title={s.staffName}>
+                                  <Highlight text={s.staffName} query={query} />
+                                </span>
+                                {isMe && (
+                                  <span className="shrink-0 rounded-full bg-ok/10 px-2 py-0.5 text-xs font-semibold text-ok">You</span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="block pl-12 pt-0.5 text-sm text-muted lg:table-cell lg:border-b lg:border-line lg:px-4 lg:py-3.5 lg:text-base lg:text-ink">
+                              <span className="block truncate" title={s.schoolEmail}>
+                                <Highlight text={s.schoolEmail} query={query} />
                               </span>
-                              <span className="min-w-0 truncate font-medium" title={s.staffName}>{s.staffName}</span>
-                            </div>
-                          </td>
-                          <td className={td}>
-                            <span className="block truncate" title={s.schoolEmail}>{s.schoolEmail}</span>
-                          </td>
-                          <td className={td}>
-                            <div className="flex justify-end gap-2">
-                              <button
-                                className={`${btnSmall} border-line text-navy hover:bg-paper`}
-                                onClick={() => setModal({ type: "edit", account: s })}
-                              >
-                                Edit
-                              </button>
-                              <button
-                                className={`${btnSmall} border-bad/30 text-bad hover:bg-bad/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white`}
-                                onClick={() => setModal({ type: "delete", account: s })}
-                                disabled={s.staffID === user.staffID}
-                                title={s.staffID === user.staffID ? "You can't delete your own account" : undefined}
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                            </td>
+                            <td className="block pt-3 lg:table-cell lg:border-b lg:border-line lg:px-4 lg:py-3.5">
+                              <div className="flex justify-end gap-2">
+                                <button
+                                  className={`${btnSmall} border-line text-navy hover:bg-paper`}
+                                  onClick={() => setModal({ type: "edit", account: s })}
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  className={`${btnSmall} border-bad/30 text-bad hover:bg-bad/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white`}
+                                  onClick={() => setModal({ type: "delete", account: s })}
+                                  disabled={isMe}
+                                  title={isMe ? "You can't delete your own account" : undefined}
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

@@ -70,9 +70,10 @@ const NAV_ITEMS = [
   {
     to: "/students",
     label: "Student Information Management",
-    description: "Manage student records, photos and CORs",
+    description: (role) =>
+      role === "Admin" ? "Manage student records, photos and CORs" : "Look up registered students (view only)",
     icon: icons.students,
-    roles: ["Admin"],
+    roles: ["Admin", "Security"],
   },
   {
     to: "/personnel",
@@ -127,6 +128,7 @@ export default function Layout() {
     items.find((i) => (i.to === "/" ? pathname === "/" : pathname.startsWith(i.to))) ?? items[0];
   const activeIndex = items.indexOf(current);
   const roleText = user.staffRole === "Security" ? "Security Staff" : "Admin";
+  const description = typeof current.description === "function" ? current.description(user.staffRole) : current.description;
 
   useEffect(() => {
     const timer = setTimeout(() => setShown(true), 50);
@@ -260,7 +262,7 @@ export default function Layout() {
 
             <div className="min-w-0 text-center">
               <p className="truncate font-head text-lg font-bold leading-tight">{current.label}</p>
-              <p className="hidden truncate text-sm text-muted md:block">{current.description}</p>
+              <p className="hidden truncate text-sm text-muted md:block">{description}</p>
               <p className="truncate text-xs text-muted md:hidden">
                 <Clock compact />
               </p>
